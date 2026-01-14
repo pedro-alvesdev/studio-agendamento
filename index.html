@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Studio de Beleza - Agendamento</title>
+  <title>Studio Nilza Alves - Agendamento</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -19,15 +19,16 @@
     .fade-in { animation: fadeIn 0.5s ease; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     input:focus, select:focus, textarea:focus { outline: none; border-color: #C79081; box-shadow: 0 0 0 3px rgba(199, 144, 129, 0.1); }
-    .admin-table { border-collapse: separate; border-spacing: 0; }
-    .admin-table th { position: sticky; top: 0; background: linear-gradient(135deg, #C79081 0%, #B8806E 100%); z-index: 10; }
+    .admin-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+    .admin-table th { position: sticky; top: 0; background: linear-gradient(135deg, #C79081 0%, #B8806E 100%); z-index: 10; color: white; padding: 12px; text-align: left; }
+    .admin-table td { padding: 12px; border-bottom: 1px solid #eee; }
   </style>
 </head>
 <body class="h-full">
   <div id="app" class="w-full h-full overflow-auto" style="background: linear-gradient(135deg, #FFF5F3 0%, #FFE8E3 100%);"></div>
 
   <script>
-    // --- CONEXÃO SUPABASE ---
+    // --- CONFIGURAÇÃO SUPABASE ---
     const SUPABASE_URL = 'https://bfymvjnqkzrsyexfwdcp.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_H6CY2ywkSPiYkhtFj15Xcg_PCxOpZTf';
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -52,6 +53,7 @@
     let currentView = 'client';
     let selectedDate = new Date();
     let selectedServices = [];
+    let selectedTime = null;
     let adminLoggedIn = sessionStorage.getItem('adminLoggedIn') === 'true';
     let customServices = [];
     
@@ -61,17 +63,17 @@
       interval: 30
     };
 
-    // --- INTERFACE DE DADOS ADAPTADA ---
+    // --- INTERFACE DE DADOS (SUPABASE) ---
     const dataSdk = {
       async refresh() {
-        const { data, error } = await _supabase.from('bookings').select('*');
+        const { data, error } = await _supabase.from('bookings').select('*').order('created_at', { ascending: false });
         if (!error) {
           allBookings = data;
           customServices = data.filter(item => item.type === 'service').map(item => ({
             id: item.service_id,
             name: item.service_name,
             duration: item.service_duration,
-            price: item.service_price
+            price: parseFloat(item.service_price)
           }));
           renderCurrentView();
         }
@@ -94,7 +96,8 @@
     };
 
     function getServices() {
-      return customServices.length > 0 ? customServices : [
+      if (customServices.length > 0) return customServices;
+      return [
         { id: 'buco', name: 'Buço', duration: 15, price: 15.00 },
         { id: 'axila', name: 'Axila', duration: 20, price: 20.00 },
         { id: 'meia_perna', name: 'Meia Perna', duration: 30, price: 40.00 },
@@ -118,18 +121,18 @@
       
       const isBlocked = allBookings.some(b => {
         if (b.type !== 'blocked_date' || b.blocked_date !== dateStr) return false;
-        if (!b.blocked_start_time) return true;
+        if (!b.blocked_start_time || !b.blocked_end_time) return true;
         const [bsH, bsM] = b.blocked_start_time.split(':').map(Number);
         const [beH, beM] = b.blocked_end_time.split(':').map(Number);
         return (timeInMinutes < (beH * 60 + beM) && endTimeInMinutes > (bsH * 60 + bsM));
       });
       if (isBlocked) return false;
-      
+
       return !allBookings.some(b => {
         if (b.type !== 'booking' || b.status !== 'confirmed' || b.date !== dateStr) return false;
         const [bh, bm] = b.time.split(':').map(Number);
         const start = bh * 60 + bm;
-        const end = start + (b.total_duration || 30);
+        const end = start + (parseInt(b.total_duration) || 30);
         return (timeInMinutes < end && endTimeInMinutes > start);
       });
     }
@@ -142,8 +145,8 @@
       if (dayOfWeek === 0) { 
         const released = allBookings.find(b => b.type === 'blocked_date' && b.blocked_date === formatDate(date) && b.blocked_reason === 'LIBERADO');
         if (released) {
-          [startHour] = released.blocked_start_time.split(':').map(Number);
-          [endHour] = released.blocked_end_time.split(':').map(Number);
+          startHour = parseInt(released.blocked_start_time.split(':')[0]);
+          endHour = parseInt(released.blocked_end_time.split(':')[0]);
         } else { return []; }
       } else {
         const config = (dayOfWeek === 6) ? WORKING_HOURS.saturday : WORKING_HOURS.weekday;
@@ -165,90 +168,202 @@
       return slots;
     }
 
-    // --- FUNÇÕES DE NAVEGAÇÃO E UI ---
+    // --- UI RENDERING ---
+    function renderClientView() {
+      const config = defaultConfig;
+      return `
+        <div class="w-full max-w-6xl mx-auto p-4 sm:p-8">
+          <div class="text-center mb-12 fade-in">
+            <img src="https://i.ibb.co/sd0VY9CY/Logo-principal.png" alt="Logo" class="h-32 sm:h-48 mx-auto mb-6">
+            <p class="opacity-80 mb-4">${config.studio_address}</p>
+            <a href="https://api.whatsapp.com/send?phone=${config.studio_phone}" target="_blank" class="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-semibold bg-[#25D366] text-white">WhatsApp</a>
+          </div>
+          <div class="p-6 rounded-2xl bg-white shadow-xl mb-8 text-center">${config.welcome_message}</div>
+          <div class="mb-8">
+            <h2 class="text-2xl font-bold mb-4">Serviços</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              ${getServices().map(s => `
+                <div class="service-card p-4 rounded-xl bg-white border-2 ${selectedServices.includes(s.id) ? 'border-[#C79081]' : 'border-transparent'}" onclick="toggleService('${s.id}')">
+                  <div class="flex justify-between"><b>${s.name}</b> <span>${selectedServices.includes(s.id) ? '●' : '○'}</span></div>
+                  <div class="flex justify-between text-sm opacity-70"><span>${s.duration}min</span> <span>R$ ${s.price.toFixed(2)}</span></div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div class="mb-8">
+            <h2 class="text-2xl font-bold mb-4">Data</h2>
+            ${renderCalendar()}
+          </div>
+          <div class="mb-8">
+            <h2 class="text-2xl font-bold mb-4">Horário</h2>
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              ${generateTimeSlots(selectedDate).map(slot => `
+                <button class="p-3 rounded-lg bg-white border-2 ${selectedTime === slot.time ? 'border-[#C79081]' : 'border-transparent'} ${!slot.available ? 'opacity-30 cursor-not-allowed' : ''}" ${slot.available ? `onclick="selectTimeSlot('${slot.time}')"` : 'disabled'}>${slot.time}</button>
+              `).join('')}
+            </div>
+          </div>
+          ${selectedTime ? `<div class="text-center"><button onclick="showBookingForm()" class="px-8 py-4 bg-[#C79081] text-white rounded-xl font-bold">Continuar</button></div>` : ''}
+          <div class="mt-12 text-center"><button onclick="showAdminLogin()" class="text-sm opacity-50">Administração</button></div>
+        </div>
+      `;
+    }
+
+    function renderCalendar() {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
+      const startDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
+      const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+      
+      let html = `<div class="bg-white p-4 rounded-xl shadow"><div class="flex justify-between font-bold mb-4"><button onclick="changeMonth(-1)">◀</button>${monthNames[selectedDate.getMonth()]} ${selectedDate.getFullYear()}<button onclick="changeMonth(1)">▶</button></div><div class="grid grid-cols-7 text-center mb-2">${['D','S','T','Q','Q','S','S'].map(d=>`<div>${d}</div>`).join('')}</div><div class="grid grid-cols-7 gap-1">`;
+      for(let i=0; i<startDay; i++) html += '<div></div>';
+      for(let d=1; d<=daysInMonth; d++) {
+        const date = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), d);
+        const isSun = date.getDay() === 0;
+        const released = isSun && allBookings.some(b => b.type === 'blocked_date' && b.blocked_date === formatDate(date) && b.blocked_reason === 'LIBERADO');
+        const disabled = date < today || (isSun && !released);
+        const active = formatDate(date) === formatDate(selectedDate);
+        html += `<button class="p-2 rounded ${active ? 'bg-[#C79081] text-white' : ''} ${disabled ? 'opacity-20' : ''}" ${disabled ? 'disabled' : `onclick="selectDate(new Date(${selectedDate.getFullYear()},${selectedDate.getMonth()},${d}))"`}>${d}</button>`;
+      }
+      return html + '</div></div>';
+    }
+
+    // --- FUNÇÕES DE INTERAÇÃO ---
     function toggleService(id) {
       const i = selectedServices.indexOf(id);
       i > -1 ? selectedServices.splice(i, 1) : selectedServices.push(id);
       renderCurrentView();
     }
+    function selectDate(d) { selectedDate = d; selectedTime = null; renderCurrentView(); }
+    function changeMonth(m) { selectedDate.setMonth(selectedDate.getMonth() + m); renderCurrentView(); }
+    function selectTimeSlot(t) { selectedTime = t; renderCurrentView(); }
     function calculateTotalDuration() { return selectedServices.reduce((t, id) => t + (getServices().find(s => s.id === id)?.duration || 0), 0); }
     function calculateTotalPrice() { return selectedServices.reduce((t, id) => t + (getServices().find(s => s.id === id)?.price || 0), 0); }
-    function selectDate(d) { selectedDate = d; selectedTime = null; renderCurrentView(); }
-    function changeMonth(delta) { selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + delta, 1); renderCurrentView(); }
-    function selectTimeSlot(t) { selectedTime = t; renderCurrentView(); }
-    function resetBooking() { selectedServices = []; selectedTime = null; selectedDate = new Date(); currentView = 'client'; renderCurrentView(); }
-    function adminLogout() { adminLoggedIn = false; sessionStorage.removeItem('adminLoggedIn'); currentView = 'client'; renderCurrentView(); }
 
-    // --- VIEWS ---
-    function renderCurrentView() {
+    function showBookingForm() {
       const app = document.getElementById('app');
-      app.innerHTML = (currentView === 'admin' && adminLoggedIn) ? renderAdminView() : renderClientView();
+      app.innerHTML = `
+        <div class="max-w-md mx-auto p-8 fade-in">
+          <div class="bg-white p-8 rounded-2xl shadow-2xl">
+            <h2 class="text-2xl font-bold mb-6">Seus Dados</h2>
+            <form onsubmit="submitBooking(event)">
+              <div class="mb-4"><label class="block mb-1">Nome Completo</label><input id="cName" type="text" required class="w-full border-2 p-3 rounded-lg"></div>
+              <div class="mb-6"><label class="block mb-1">WhatsApp</label><input id="cPhone" type="tel" placeholder="(85) 99999-9999" required class="w-full border-2 p-3 rounded-lg"></div>
+              <div class="p-4 bg-gray-50 rounded-lg mb-6 text-sm">
+                <p>Data: ${formatDate(selectedDate)}</p>
+                <p>Hora: ${selectedTime}</p>
+                <p>Total: R$ ${calculateTotalPrice().toFixed(2)}</p>
+              </div>
+              <button type="submit" id="confirmBtn" class="w-full py-4 bg-[#C79081] text-white rounded-xl font-bold">Confirmar Agendamento</button>
+              <button type="button" onclick="renderCurrentView()" class="w-full mt-4 text-gray-400">Voltar</button>
+            </form>
+          </div>
+        </div>
+      `;
     }
 
-    // [O restante do código de renderização Client e Admin é idêntico ao seu original, mas chamando dataSdk.create/delete]
-    // Abaixo incluímos as funções vitais adaptadas para o Supabase
-
-    async function submitBooking(event, time) {
-      event.preventDefault();
+    async function submitBooking(e) {
+      e.preventDefault();
+      const btn = document.getElementById('confirmBtn');
+      btn.disabled = true; btn.innerHTML = 'Gravando...';
       const booking = {
         type: 'booking',
-        client_name: document.getElementById('clientName').value,
-        client_phone: document.getElementById('clientPhone').value,
+        client_name: document.getElementById('cName').value,
+        client_phone: document.getElementById('cPhone').value,
         services: selectedServices.join(','),
         date: formatDate(selectedDate),
-        time: time,
+        time: selectedTime,
         total_duration: calculateTotalDuration(),
         total_price: calculateTotalPrice(),
         status: 'confirmed'
       };
       const res = await dataSdk.create(booking);
-      if (res.isOk) showSuccessMessage();
+      if(res.isOk) {
+        document.getElementById('app').innerHTML = `<div class="max-w-md mx-auto p-8 text-center h-full flex flex-col justify-center">
+          <div class="text-6xl mb-4">✅</div>
+          <h1 class="text-3xl font-bold mb-2">Agendado!</h1>
+          <p class="mb-8">Nilza Alves te espera em ${formatDate(selectedDate)} às ${selectedTime}.</p>
+          <button onclick="location.reload()" class="bg-[#C79081] text-white px-8 py-3 rounded-full">Início</button>
+        </div>`;
+      }
     }
 
-    async function blockDate(event) {
-        event.preventDefault();
-        const blockData = {
-            type: 'blocked_date',
-            blocked_date: document.getElementById('blockDateInput').value,
-            blocked_reason: document.getElementById('blockReasonInput').value,
-            blocked_start_time: document.getElementById('blockStartTime').value || '',
-            blocked_end_time: document.getElementById('blockEndTime').value || '',
-        };
-        await dataSdk.create(blockData);
+    // --- ÁREA ADMINISTRATIVA ---
+    function showAdminLogin() {
+      const code = prompt("Código de acesso:");
+      if(code === '123456') {
+        adminLoggedIn = true; sessionStorage.setItem('adminLoggedIn','true');
+        currentView = 'admin'; renderCurrentView();
+      }
     }
 
-    async function releaseSunday(event) {
-        event.preventDefault();
-        const releaseData = {
-            type: 'blocked_date',
-            blocked_date: document.getElementById('releaseSundayDate').value,
-            blocked_reason: 'LIBERADO',
-            blocked_start_time: document.getElementById('releaseSundayStart').value,
-            blocked_end_time: document.getElementById('releaseSundayEnd').value,
-        };
-        await dataSdk.create(releaseData);
+    function renderAdminView() {
+      const upcoming = allBookings.filter(b => b.type === 'booking' && b.status === 'confirmed');
+      const blocks = allBookings.filter(b => b.type === 'blocked_date');
+      
+      return `
+        <div class="p-4 sm:p-8 max-w-6xl mx-auto">
+          <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold">Painel ADM</h1>
+            <button onclick="sessionStorage.clear(); location.reload()" class="text-red-500">Sair</button>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+            <div class="bg-white p-6 rounded-xl shadow">
+              <h2 class="font-bold mb-4">Bloquear/Liberar Data</h2>
+              <form onsubmit="adminAction(event, 'block')" class="space-y-3">
+                <input id="bDate" type="date" required class="w-full border p-2 rounded">
+                <input id="bReason" type="text" placeholder="Motivo (ou 'LIBERADO' para domingo)" required class="w-full border p-2 rounded">
+                <div class="flex gap-2"><input id="bStart" type="time" class="w-1/2 border p-2 rounded"> <input id="bEnd" type="time" class="w-1/2 border p-2 rounded"></div>
+                <button class="w-full bg-black text-white p-2 rounded">Salvar Regra</button>
+              </form>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow">
+              <h2 class="font-bold mb-4">Serviços e Preços</h2>
+              <button onclick="alert('Funcionalidade de edição de preços em desenvolvimento para Supabase.')" class="w-full border p-4 rounded border-dashed">Gerenciar Serviços</button>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl shadow overflow-hidden">
+            <table class="admin-table">
+              <thead><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Ações</th></tr></thead>
+              <tbody>
+                ${upcoming.map(b => `<tr>
+                  <td>${b.date}</td><td>${b.time}</td><td>${b.client_name}</td>
+                  <td>
+                    <button onclick="deleteItem('${b.__backendId}')" class="text-red-500">Excluir</button>
+                  </td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
     }
 
-    async function cancelBooking(backendId) {
-        if(confirm("Deseja cancelar?")) {
-            await dataSdk.update({ __backendId: backendId, status: 'cancelled' });
-        }
+    async function adminAction(e, type) {
+      e.preventDefault();
+      const data = {
+        type: 'blocked_date',
+        blocked_date: document.getElementById('bDate').value,
+        blocked_reason: document.getElementById('bReason').value,
+        blocked_start_time: document.getElementById('bStart').value,
+        blocked_end_time: document.getElementById('bEnd').value
+      };
+      await dataSdk.create(data);
+      alert("Sucesso!");
     }
 
-    async function unblockDate(backendId) {
-        await dataSdk.delete({ __backendId: backendId });
+    async function deleteItem(id) {
+      if(confirm("Excluir permanentemente?")) await dataSdk.delete({ __backendId: id });
     }
 
-    // Reaproveitando sua lógica original de renderização (resumida aqui por espaço, mas funcional)
-    // Insira aqui suas funções renderClientView, renderAdminView, etc, exatamente como no original
-    // apenas garantindo que as chamadas de funções apontem para as adaptadas acima.
+    function renderCurrentView() {
+      const app = document.getElementById('app');
+      app.innerHTML = (currentView === 'admin' && adminLoggedIn) ? renderAdminView() : renderClientView();
+    }
 
-    function init() { dataSdk.refresh(); }
-    init();
-
-    // --- COPIE AQUI AS FUNÇÕES DE RENDERIZAÇÃO DO SEU CÓDIGO ANTERIOR ---
-    // (renderClientView, renderCalendar, renderTimeSlots, showBookingForm, showAdminLogin, checkAdminCode, renderAdminView, renderBookingsTable)
-    // Lembre-se apenas de trocar 'booking.__backendId' onde houver IDs no seu código original.
+    // Inicialização
+    dataSdk.refresh();
   </script>
 </body>
 </html>
