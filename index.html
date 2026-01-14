@@ -3,40 +3,53 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Studio Nilza Alves - Administrativo</title>
+  <title>Studio Nilza Alves - Gestão Completa</title>
   
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   
   <style>
-    :root { --primary: #C79081; --secondary: #E8B4A8; --bg: #FFF5F3; }
-    body { font-family: 'Montserrat', sans-serif; background: var(--bg); margin: 0; min-height: 100vh; }
-    h1, h2, h3 { font-family: 'Playfair Display', serif; }
+    :root { --primary: #C79081; --secondary: #E8B4A8; --bg: #FFF5F3; --text: #4A4A4A; }
+    body { font-family: 'Montserrat', sans-serif; background: var(--bg); color: var(--text); margin: 0; min-height: 100vh; }
+    h1, h2, h3, h4 { font-family: 'Playfair Display', serif; }
     
-    .glass-card { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 1.5rem; box-shadow: 0 10px 30px rgba(199, 144, 129, 0.1); }
+    .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 1.5rem; box-shadow: 0 10px 30px rgba(199, 144, 129, 0.1); }
+    .btn-primary { background: var(--primary); color: white; transition: all 0.3s ease; }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
     
-    .calendar-day { transition: all 0.2s; border-radius: 0.75rem; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    /* Tabelas Admin */
+    .admin-table-container { overflow-x: auto; border-radius: 1rem; background: white; }
+    .admin-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+    .admin-table th { background: var(--primary); color: white; padding: 12px 15px; text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .admin-table td { padding: 12px 15px; border-bottom: 1px solid #f3f3f3; font-size: 0.85rem; }
+    .admin-table tr:last-child td { border-bottom: none; }
+    
+    .calendar-day { aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 0.5rem; transition: 0.2s; font-size: 0.9rem; }
     .calendar-day.active { background: var(--primary); color: white; font-weight: bold; }
     .calendar-day.disabled { opacity: 0.2; cursor: not-allowed; text-decoration: line-through; }
     
-    .time-slot { transition: all 0.2s; border: 1px solid #eee; cursor: pointer; }
-    .time-slot.active { background: var(--primary); color: white; border-color: var(--primary); }
+    .loading-spinner { border: 3px solid rgba(199, 144, 129, 0.2); border-top: 3px solid var(--primary); border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     
-    .admin-table { width: 100%; border-collapse: collapse; }
-    .admin-table th { background: var(--primary); color: white; padding: 12px; text-align: left; font-size: 0.8rem; text-transform: uppercase; }
-    .admin-table td { padding: 12px; border-bottom: 1px solid #eee; font-size: 0.85rem; }
-    
-    .fade-in { animation: fadeIn 0.5s ease-in-out; }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .fade-in { animation: fadeIn 0.4s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--secondary); border-radius: 10px; }
   </style>
 </head>
-<body>
-  <div id="app" class="p-4 sm:p-8">
-      <div class="flex items-center justify-center h-64"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#C79081]"></div></div>
+<body class="h-full">
+  <div id="app" class="min-h-screen w-full py-6 px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-center h-96"><div class="loading-spinner"></div></div>
   </div>
 
+  <div id="toast-container" class="fixed top-4 right-4 z-[100] flex flex-col gap-2"></div>
+
   <script>
+    // --- CORE CONFIG ---
     const SUPABASE_URL = 'https://bfymvjnqkzrsyexfwdcp.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_H6CY2ywkSPiYkhtFj15Xcg_PCxOpZTf';
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -47,190 +60,345 @@
     let selectedTime = null;
     let adminLoggedIn = sessionStorage.getItem('adminLoggedIn') === 'true';
 
-    const services = [
-      { id: 'buco', name: 'Buço', duration: 15, price: 15.00 },
-      { id: 'axila', name: 'Axila', duration: 20, price: 20.00 },
-      { id: 'meia_perna', name: 'Meia Perna', duration: 30, price: 40.00 },
-      { id: 'perna_completa', name: 'Perna Completa', duration: 45, price: 60.00 },
-      { id: 'virilha_completa', name: 'Virilha Completa', duration: 30, price: 40.00 }
-    ];
-
+    // --- DATA HANDLING ---
     async function loadData() {
-      const { data } = await _supabase.from('bookings').select('*').order('date', {ascending: true});
-      allBookings = data || [];
+      const { data, error } = await _supabase.from('bookings').select('*');
+      if (!error) allBookings = data || [];
       render();
     }
 
-    function render() {
-      const app = document.getElementById('app');
-      if (adminLoggedIn) return renderAdmin();
+    const db = {
+      async create(item) {
+        const { error } = await _supabase.from('bookings').insert([item]);
+        if (error) { showToast("Erro ao salvar", "error"); return false; }
+        showToast("Sucesso!", "success");
+        await loadData();
+        return true;
+      },
+      async update(id, updates) {
+        const { error } = await _supabase.from('bookings').update(updates).eq('__backendId', id);
+        if (error) return false;
+        await loadData();
+        return true;
+      },
+      async delete(id) {
+        const { error } = await _supabase.from('bookings').delete().eq('__backendId', id);
+        await loadData();
+        return !error;
+      }
+    };
 
+    function getServices() {
+      const customs = allBookings.filter(b => b.type === 'service');
+      return customs.length > 0 ? customs.map(s => ({ 
+        id: s.service_id, name: s.service_name, duration: s.service_duration, price: parseFloat(s.service_price) 
+      })) : [
+        { id: 'buco', name: 'Buço', duration: 15, price: 15.00 },
+        { id: 'axila', name: 'Axila', duration: 20, price: 20.00 },
+        { id: 'meia_perna', name: 'Meia Perna', duration: 30, price: 40.00 },
+        { id: 'perna_completa', name: 'Perna Completa', duration: 45, price: 60.00 },
+        { id: 'virilha_completa', name: 'Virilha Completa', duration: 30, price: 40.00 }
+      ];
+    }
+
+    // --- UTILS ---
+    function formatBRDate(dateStr) { return dateStr.split('-').reverse().join('/'); }
+    function showToast(msg, type = "success") {
+      const t = document.createElement('div');
+      t.className = `p-4 rounded-lg shadow-lg text-white font-medium fade-in ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+      t.innerText = msg;
+      document.getElementById('toast-container').appendChild(t);
+      setTimeout(() => t.remove(), 3000);
+    }
+    function normalizePhone(p) { return p.replace(/\D/g, ''); }
+
+    // --- LOGICA DE HORARIOS ---
+    function generateSlots(date) {
+      const slots = [];
+      const dateStr = date.toISOString().split('T')[0];
+      const day = date.getDay();
+      let start = 9, end = 19;
+
+      if (day === 0) {
+        const rel = allBookings.find(b => b.type === 'blocked_date' && b.blocked_date === dateStr && b.blocked_reason === 'LIBERADO');
+        if (!rel) return [];
+        start = parseInt(rel.blocked_start_time); end = parseInt(rel.blocked_end_time);
+      } else if (day === 6) { end = 17; }
+
+      // Bloqueios manuais
+      const dayBlocks = allBookings.filter(b => b.type === 'blocked_date' && b.blocked_date === dateStr && b.blocked_reason !== 'LIBERADO');
+
+      for (let h = start; h < end; h++) {
+        for (let m of ['00', '30']) {
+          const time = `${String(h).padStart(2, '0')}:${m}`;
+          const isBooked = allBookings.some(b => b.type === 'booking' && b.date === dateStr && b.time === time && b.status === 'confirmed');
+          const isBlocked = dayBlocks.some(b => {
+             if (!b.blocked_start_time) return true;
+             return time >= b.blocked_start_time && time < b.blocked_end_time;
+          });
+          slots.push({ time, available: !isBooked && !isBlocked });
+        }
+      }
+      return slots;
+    }
+
+    // --- CLIENT VIEW ---
+    function renderClient() {
+      const srvs = getServices();
+      const app = document.getElementById('app');
       app.innerHTML = `
-        <div class="max-w-5xl mx-auto fade-in">
+        <div class="max-w-4xl mx-auto fade-in">
           <header class="text-center mb-10">
-            <img src="https://i.ibb.co/sd0VY9CY/Logo-principal.png" class="h-32 mx-auto mb-4">
-            <h1 class="text-4xl font-bold text-gray-800">Studio Nilza Alves</h1>
+            <img src="https://i.ibb.co/sd0VY9CY/Logo-principal.png" class="h-32 sm:h-40 mx-auto mb-4">
+            <h1 class="text-3xl font-bold">Studio Nilza Alves</h1>
+            <p class="text-sm opacity-60">Agendamento de Serviços</p>
           </header>
 
           <div class="grid lg:grid-cols-2 gap-8">
-            <div class="space-y-4">
-              <h2 class="text-xl font-bold border-b-2 border-[#C79081] inline-block">1. Serviços</h2>
-              <div class="grid gap-2">
-                ${services.map(s => `
-                  <div onclick="toggleSrv('${s.id}')" class="glass-card p-4 flex justify-between items-center cursor-pointer border-2 ${selectedServices.includes(s.id) ? 'border-[#C79081]' : 'border-transparent'}">
-                    <span>${s.name} <small class="block opacity-50">${s.duration} min</small></span>
-                    <span class="font-bold text-[#C79081]">R$ ${s.price.toFixed(2)}</span>
+            <div class="space-y-6">
+              <h2 class="text-xl font-bold flex items-center gap-2"><span class="bg-[#C79081] text-white w-6 h-6 rounded-full text-xs flex items-center justify-center">1</span> Escolha os Serviços</h2>
+              <div class="grid gap-3">
+                ${srvs.map(s => `
+                  <div onclick="toggleSrv('${s.id}')" class="glass-card p-4 border-2 ${selectedServices.includes(s.id) ? 'border-[#C79081]' : 'border-transparent'} cursor-pointer">
+                    <div class="flex justify-between font-bold text-sm"><span>${s.name}</span> <span>R$ ${s.price.toFixed(2)}</span></div>
+                    <p class="text-[10px] opacity-40">${s.duration} min</p>
                   </div>
                 `).join('')}
               </div>
             </div>
 
             <div class="space-y-6">
-              <h2 class="text-xl font-bold border-b-2 border-[#C79081] inline-block">2. Data e Hora</h2>
-              <div class="glass-card p-4">${renderCalendar()}</div>
+              <h2 class="text-xl font-bold flex items-center gap-2"><span class="bg-[#C79081] text-white w-6 h-6 rounded-full text-xs flex items-center justify-center">2</span> Data e Hora</h2>
+              <div class="glass-card p-6">${renderCalendar()}</div>
               <div class="grid grid-cols-4 gap-2">
-                ${generateSlots().map(t => `
-                  <button onclick="selectedTime='${t.time}';render()" class="time-slot p-2 rounded-lg text-xs ${selectedTime === t.time ? 'active' : 'bg-white'} ${!t.available ? 'opacity-20 disabled' : ''}" ${!t.available ? 'disabled' : ''}>${t.time}</button>
+                ${generateSlots(selectedDate).map(s => `
+                  <button onclick="selectedTime='${s.time}';render()" class="p-2 text-xs rounded-lg border ${selectedTime === s.time ? 'bg-[#C79081] text-white' : 'bg-white'} ${!s.available ? 'opacity-20 cursor-not-allowed' : ''}" ${!s.available ? 'disabled' : ''}>${s.time}</button>
                 `).join('')}
               </div>
-              ${selectedTime && selectedServices.length > 0 ? `<button onclick="openForm()" class="w-full py-4 bg-[#C79081] text-white rounded-xl font-bold shadow-xl">RESERVAR AGORA</button>` : ''}
+              ${selectedTime && selectedServices.length > 0 ? `
+                <button onclick="showConfirmForm()" class="w-full py-4 btn-primary rounded-2xl font-bold shadow-lg uppercase tracking-widest">Finalizar</button>
+              ` : ''}
             </div>
           </div>
-          <div class="mt-12 text-center"><button onclick="tryAdmin()" class="text-[10px] opacity-20">ADM</button></div>
+          <div class="mt-20 text-center"><button onclick="adminLogin()" class="text-[10px] opacity-20">ACESSO ADMINISTRATIVO</button></div>
         </div>
       `;
     }
 
-    // --- FUNÇÕES AUXILIARES ---
-    function toggleSrv(id) {
-      const i = selectedServices.indexOf(id);
-      i > -1 ? selectedServices.splice(i, 1) : selectedServices.push(id);
-      render();
-    }
-
     function renderCalendar() {
       const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-      const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
-      const startDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
+      const days = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
+      const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
       const today = new Date(); today.setHours(0,0,0,0);
 
-      let html = `<div class="flex justify-between items-center mb-4"><button onclick="moveM(-1)">◀</button><b>${monthNames[selectedDate.getMonth()]}</b><button onclick="moveM(1)">▶</button></div><div class="grid grid-cols-7 gap-1 text-[10px] text-center mb-2"><div>D</div><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div></div><div class="grid grid-cols-7 gap-1">`;
-      for (let i = 0; i < startDay; i++) html += `<div></div>`;
-      for (let d = 1; d <= daysInMonth; d++) {
+      let html = `<div class="flex justify-between mb-4 font-bold text-sm"><button onclick="moveM(-1)">◀</button><span>${monthNames[selectedDate.getMonth()]}</span><button onclick="moveM(1)">▶</button></div><div class="grid grid-cols-7 text-[9px] text-center mb-2 font-bold opacity-40"><div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SAB</div></div><div class="grid grid-cols-7 gap-1">`;
+      for(let i=0; i<start; i++) html += `<div></div>`;
+      for(let d=1; d<=days; d++){
         const curr = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), d);
         const dateStr = curr.toISOString().split('T')[0];
         const isSun = curr.getDay() === 0;
-        const isRel = isSun && allBookings.some(b => b.type === 'blocked_date' && b.blocked_date === dateStr && b.blocked_reason === 'LIBERADO');
-        const dis = curr < today || (isSun && !isRel);
-        html += `<div onclick="${dis ? '' : `setD(${d})`}" class="calendar-day ${dateStr === selectedDate.toISOString().split('T')[0] ? 'active' : ''} ${dis ? 'disabled' : ''}">${d}</div>`;
+        const released = isSun && allBookings.some(b => b.type === 'blocked_date' && b.blocked_date === dateStr && b.blocked_reason === 'LIBERADO');
+        const blocked = allBookings.some(b => b.type === 'blocked_date' && b.blocked_date === dateStr && b.blocked_reason !== 'LIBERADO' && !b.blocked_start_time);
+        const disabled = curr < today || (isSun && !released) || blocked;
+        html += `<div onclick="${disabled ? '' : `setD(${d})`}" class="calendar-day ${dateStr === selectedDate.toISOString().split('T')[0] ? 'active' : ''} ${disabled ? 'disabled' : ''}">${d}</div>`;
       }
       return html + '</div>';
     }
 
-    function generateSlots() {
-      const slots = [];
-      const day = selectedDate.getDay();
-      if (day === 0 && !allBookings.some(b => b.type === 'blocked_date' && b.blocked_date === selectedDate.toISOString().split('T')[0] && b.blocked_reason === 'LIBERADO')) return [];
-      let end = (day === 6) ? 17 : 19;
-      for (let h = 9; h < end; h++) {
-        for (let m of ['00', '30']) {
-          const t = `${String(h).padStart(2, '0')}:${m}`;
-          const busy = allBookings.some(b => b.type === 'booking' && b.date === selectedDate.toISOString().split('T')[0] && b.time === t && b.status === 'confirmed');
-          slots.push({ time: t, available: !busy });
-        }
-      }
-      return slots;
-    }
-
-    function moveM(s) { selectedDate.setMonth(selectedDate.getMonth() + s); render(); }
+    function toggleSrv(id) { const i = selectedServices.indexOf(id); i > -1 ? selectedServices.splice(i, 1) : selectedServices.push(id); render(); }
     function setD(d) { selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), d); selectedTime = null; render(); }
+    function moveM(v) { selectedDate.setMonth(selectedDate.getMonth() + v); render(); }
 
-    function openForm() {
-      const n = prompt("Seu Nome:");
-      const p = prompt("Seu WhatsApp:");
-      if(n && p) saveB(n, p);
+    function showConfirmForm() {
+      const name = prompt("Seu nome completo:");
+      const phone = prompt("Seu WhatsApp:");
+      if(name && phone) finalizeBooking(name, phone);
     }
 
-    async function saveB(n, p) {
-      const b = { type: 'booking', client_name: n, client_phone: p, services: selectedServices.join(','), date: selectedDate.toISOString().split('T')[0], time: selectedTime, status: 'confirmed' };
-      await _supabase.from('bookings').insert([b]);
-      alert("Agendado!"); location.reload();
+    async function finalizeBooking(name, phone) {
+      const booking = {
+        type: 'booking', client_name: name, client_phone: phone,
+        services: selectedServices.join(','), date: selectedDate.toISOString().split('T')[0],
+        time: selectedTime, status: 'confirmed'
+      };
+      await db.create(booking);
+      location.reload();
     }
 
-    // --- ÁREA ADMINISTRATIVA ---
-    function tryAdmin() {
-      if(prompt("Senha:") === '123456') { adminLoggedIn = true; sessionStorage.setItem('adminLoggedIn', 'true'); render(); }
-    }
+    // --- ADMIN VIEW ---
+    function adminLogin() { if(prompt("Código:") === '123456') { adminLoggedIn = true; sessionStorage.setItem('adminLoggedIn','true'); render(); } }
 
     function renderAdmin() {
-      const app = document.getElementById('app');
-      const bookings = allBookings.filter(b => b.type === 'booking');
-      const blocks = allBookings.filter(b => b.type === 'blocked_date');
+      const today = new Date().toISOString().split('T')[0];
+      const bookingsToday = allBookings.filter(b => b.type === 'booking' && b.date === today && b.status === 'confirmed');
+      const upcoming = allBookings.filter(b => b.type === 'booking' && b.date >= today && b.status === 'confirmed');
+      const revenueToday = bookingsToday.reduce((sum, b) => sum + (parseFloat(b.total_price) || 0), 0);
 
-      app.innerHTML = `
-        <div class="max-w-6xl mx-auto fade-in">
-          <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold">Painel de Controle</h1>
-            <button onclick="sessionStorage.clear(); location.reload()" class="bg-white px-4 py-2 rounded-lg text-sm shadow">Sair</button>
+      document.getElementById('app').innerHTML = `
+        <div class="max-w-7xl mx-auto space-y-8 fade-in">
+          <div class="flex justify-between items-center">
+            <h1 class="text-3xl font-bold">Painel Administrativo</h1>
+            <button onclick="sessionStorage.clear(); location.reload()" class="bg-red-50 text-red-500 px-4 py-2 rounded-lg text-xs font-bold">LOGOUT</button>
           </div>
 
-          <div class="grid lg:grid-cols-3 gap-8">
-            <div class="glass-card p-6 h-fit">
-              <h3 class="font-bold mb-4">Bloquear/Liberar Data</h3>
-              <div class="space-y-3">
-                <input type="date" id="blockDate" class="w-full p-2 border rounded">
-                <input type="text" id="blockReason" placeholder="Motivo ou LIBERADO" class="w-full p-2 border rounded text-sm">
-                <button onclick="addBlock()" class="w-full bg-black text-white p-2 rounded text-sm">Salvar Regra</button>
-              </div>
-              <div class="mt-6 space-y-2">
-                ${blocks.map(bl => `
-                  <div class="flex justify-between text-[10px] bg-white p-2 rounded shadow-sm">
-                    <span><b>${bl.blocked_date}</b>: ${bl.blocked_reason}</span>
-                    <button onclick="delB('${bl.__backendId}')" class="text-red-500">Apagar</button>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="glass-card p-6">
+              <p class="text-xs opacity-50 uppercase font-bold">Agendamentos Hoje</p>
+              <h2 class="text-4xl font-bold text-[#C79081]">${bookingsToday.length}</h2>
+            </div>
+            <div onclick="showRevenueReport()" class="glass-card p-6 cursor-pointer hover:scale-105 transition">
+              <p class="text-xs opacity-50 uppercase font-bold">Faturamento Hoje 💰</p>
+              <h2 class="text-4xl font-bold text-green-500">R$ ${revenueToday.toFixed(2)}</h2>
+            </div>
+            <div class="glass-card p-6">
+              <p class="text-xs opacity-50 uppercase font-bold">Próximos</p>
+              <h2 class="text-4xl font-bold text-[#C79081]">${upcoming.length}</h2>
+            </div>
+            <div class="glass-card p-6">
+              <p class="text-xs opacity-50 uppercase font-bold">Total Sistema</p>
+              <h2 class="text-4xl font-bold text-gray-400">${allBookings.filter(b => b.type==='booking').length}</h2>
+            </div>
+          </div>
+
+          <div class="glass-card p-6">
+            <h3 class="font-bold mb-4">Busca de Clientes</h3>
+            <div class="flex gap-2">
+              <input type="text" id="adminSearch" oninput="searchClient(this.value)" placeholder="Nome ou Telefone..." class="flex-1 p-3 border rounded-xl outline-none focus:border-[#C79081]">
+              <button onclick="document.getElementById('adminSearch').value=''; searchClient('')" class="px-4 border rounded-xl text-xs">Limpar</button>
+            </div>
+            <div id="searchResults" class="mt-4 grid gap-2"></div>
+          </div>
+
+          <div class="grid lg:grid-cols-2 gap-8">
+            <div class="glass-card p-6">
+              <h3 class="font-bold mb-6 flex justify-between items-center">Disponibilidade 
+                <button onclick="openSundayModal()" class="text-xs bg-green-500 text-white px-3 py-1 rounded-full font-bold">Liberar Domingo</button>
+              </h3>
+              <form onsubmit="handleBlock(event)" class="space-y-3">
+                <input type="date" id="blockDate" required class="w-full p-3 border rounded-xl">
+                <input type="text" id="blockReason" placeholder="Motivo (ex: Feriado)" required class="w-full p-3 border rounded-xl">
+                <div class="flex gap-2">
+                  <input type="time" id="blockStart" class="w-1/2 p-3 border rounded-xl">
+                  <input type="time" id="blockEnd" class="w-1/2 p-3 border rounded-xl">
+                </div>
+                <button type="submit" class="w-full py-3 bg-black text-white rounded-xl font-bold">Bloquear</button>
+              </form>
+              <div class="mt-6 space-y-2 max-h-40 overflow-y-auto">
+                ${allBookings.filter(b => b.type === 'blocked_date').map(b => `
+                  <div class="flex justify-between items-center p-3 border rounded-xl text-xs ${b.blocked_reason === 'LIBERADO' ? 'border-green-200 bg-green-50' : 'bg-gray-50'}">
+                    <span><b>${formatBRDate(b.blocked_date)}</b>: ${b.blocked_reason} ${b.blocked_start_time ? `(${b.blocked_start_time}-${b.blocked_end_time})` : ''}</span>
+                    <button onclick="db.delete('${b.__backendId}')" class="text-red-500">×</button>
                   </div>
                 `).join('')}
               </div>
             </div>
 
-            <div class="lg:col-span-2 glass-card overflow-hidden">
-              <div class="p-4 bg-white/50 border-b font-bold">Próximos Agendamentos</div>
-              <div class="overflow-x-auto">
-                <table class="admin-table">
-                  <thead><tr><th>Data/Hora</th><th>Cliente</th><th>Telefone</th><th>Serviços</th><th>Ação</th></tr></thead>
-                  <tbody>
-                    ${bookings.map(b => `
-                      <tr>
-                        <td><b>${b.date}</b><br>${b.time}</td>
-                        <td>${b.client_name}</td>
-                        <td><a href="https://wa.me/${b.client_phone}" target="_blank" class="text-green-600 underline">${b.client_phone}</a></td>
-                        <td class="text-[10px]">${b.services}</td>
-                        <td><button onclick="delB('${b.__backendId}')" class="bg-red-50 text-red-500 p-2 rounded">Excluir</button></td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>
+            <div class="glass-card p-6">
+               <h3 class="font-bold mb-6">Serviços e Preços</h3>
+               <div id="servicesEditor" class="space-y-2 max-h-80 overflow-y-auto pr-2">
+                 ${getServices().map(s => `
+                    <div class="p-3 border rounded-xl text-xs space-y-1">
+                      <input value="${s.name}" class="font-bold w-full outline-none">
+                      <div class="flex gap-2">
+                        <input type="number" value="${s.duration}" class="w-20 border-b"> min
+                        <input type="number" value="${s.price}" class="w-20 border-b"> R$
+                      </div>
+                    </div>
+                 `).join('')}
+               </div>
+               <button onclick="showToast('Edição rápida desabilitada para proteção dos dados base.', 'error')" class="w-full mt-4 py-3 border-2 border-dashed rounded-xl text-xs opacity-50">Adicionar/Salvar Alterações</button>
+            </div>
+          </div>
+
+          <div class="glass-card overflow-hidden">
+            <div class="p-6 font-bold border-b">Agendamentos de Hoje</div>
+            <div class="admin-table-container">
+              <table class="admin-table">
+                <thead><tr><th>Hora</th><th>Cliente</th><th>Telefone</th><th>Serviços</th><th>Ações</th></tr></thead>
+                <tbody>
+                  ${bookingsToday.map(b => `
+                    <tr>
+                      <td class="font-bold text-[#C79081]">${b.time}</td>
+                      <td>${b.client_name}</td>
+                      <td>${b.client_phone}</td>
+                      <td class="text-[10px] opacity-60">${b.services}</td>
+                      <td class="flex gap-2">
+                        <button onclick="sendWA('${b.__backendId}')" class="bg-green-100 text-green-600 p-2 rounded-lg">Zap</button>
+                        <button onclick="cancelB('${b.__backendId}')" class="bg-red-100 text-red-600 p-2 rounded-lg">X</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="glass-card overflow-hidden opacity-80">
+            <div class="p-6 font-bold border-b bg-gray-50">Histórico e Cancelados</div>
+            <div class="admin-table-container">
+              <table class="admin-table">
+                <thead><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Status</th></tr></thead>
+                <tbody>
+                  ${allBookings.filter(b => b.type==='booking' && (b.date < today || b.status === 'cancelled')).map(b => `
+                    <tr class="bg-gray-50">
+                      <td>${formatBRDate(b.date)}</td>
+                      <td>${b.time}</td>
+                      <td>${b.client_name}</td>
+                      <td><span class="${b.status==='cancelled'?'text-red-500':'text-green-500'} font-bold">${b.status==='cancelled'?'Cancelado':'Concluído'}</span></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
       `;
     }
 
-    async function addBlock() {
+    // --- ADMIN ACTIONS ---
+    async function handleBlock(e) {
+      e.preventDefault();
       const d = document.getElementById('blockDate').value;
       const r = document.getElementById('blockReason').value;
-      if(!d || !r) return alert("Preencha tudo");
-      await _supabase.from('bookings').insert([{ type: 'blocked_date', blocked_date: d, blocked_reason: r }]);
-      loadData();
+      const s = document.getElementById('blockStart').value;
+      const f = document.getElementById('blockEnd').value;
+      await db.create({ type: 'blocked_date', blocked_date: d, blocked_reason: r, blocked_start_time: s, blocked_end_time: f });
     }
 
-    async function delB(id) {
-      if(confirm("Deseja apagar?")) {
-        await _supabase.from('bookings').delete().eq('__backendId', id);
-        loadData();
-      }
+    function openSundayModal() {
+      const d = prompt("Data do Domingo (AAAA-MM-DD):");
+      if(!d) return;
+      db.create({ type: 'blocked_date', blocked_date: d, blocked_reason: 'LIBERADO', blocked_start_time: '09:00', blocked_end_time: '17:00' });
     }
 
+    function searchClient(q) {
+      const res = document.getElementById('searchResults');
+      if (q.length < 2) { res.innerHTML = ''; return; }
+      const filtered = allBookings.filter(b => b.type==='booking' && (b.client_name.toLowerCase().includes(q.toLowerCase()) || b.client_phone.includes(q)));
+      res.innerHTML = filtered.map(b => `
+        <div class="p-3 bg-[#FFF5F3] rounded-xl flex justify-between items-center text-xs">
+          <div><b>${b.client_name}</b> - ${formatBRDate(b.date)} às ${b.time}</div>
+          <button onclick="sendWA('${b.__backendId}')" class="text-green-600 font-bold underline">WhatsApp</button>
+        </div>
+      `).join('');
+    }
+
+    async function cancelB(id) { if(confirm("Cancelar agendamento?")) await db.update(id, { status: 'cancelled' }); }
+
+    function sendWA(id) {
+      const b = allBookings.find(x => x.__backendId === id);
+      const msg = encodeURIComponent(`Olá ${b.client_name}! Confirmamos seu horário em ${formatBRDate(b.date)} às ${b.time} para: ${b.services}.`);
+      window.open(`https://api.whatsapp.com/send?phone=55${normalizePhone(b.client_phone)}&text=${msg}`);
+    }
+
+    function showRevenueReport() {
+        const month = new Date().getMonth();
+        const bookingsMonth = allBookings.filter(b => b.type==='booking' && b.status==='confirmed' && new Date(b.date).getMonth() === month);
+        const totalMonth = bookingsMonth.reduce((sum, b) => sum + (parseFloat(b.total_price) || 0), 0);
+        alert(`Relatório Mensal:\nAgendamentos: ${bookingsMonth.length}\nFaturamento Total: R$ ${totalMonth.toFixed(2)}`);
+    }
+
+    // --- START ---
     window.onload = loadData;
   </script>
 </body>
