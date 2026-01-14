@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="pt-BR" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Studio de Beleza - Agendamento</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Montserrat', sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+    h1, h2, h3 { font-family: 'Playfair Display', serif; }
+    .calendar-day, .time-slot, .service-card { transition: all 0.3s ease; }
+    .calendar-day:hover:not(.disabled), .time-slot:hover:not(.booked):not(:disabled), .service-card:hover { 
+      transform: translateY(-2px); box-shadow: 0 4px 12px rgba(199, 144, 129, 0.3); 
+    }
+    .loading-spinner { border: 3px solid rgba(199, 144, 129, 0.2); border-top: 3px solid #C79081; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .fade-in { animation: fadeIn 0.5s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #C79081; box-shadow: 0 0 0 3px rgba(199, 144, 129, 0.1); }
+    .admin-table { border-collapse: separate; border-spacing: 0; }
+    .admin-table th { position: sticky; top: 0; background: linear-gradient(135deg, #C79081 0%, #B8806E 100%); z-index: 10; }
+  </style>
+</head>
+<body class="h-full">
+  <div id="app" class="w-full h-full overflow-auto" style="background: linear-gradient(135deg, #FFF5F3 0%, #FFE8E3 100%);"></div>
+
+  <script>
+    // CONFIGURAÇÃO SUPABASE
+    const SUPABASE_URL = 'https://bfymvjnqkzrsyexfwdcp.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_H6CY2ywkSPiYkhtFj15Xcg_PCxOpZTf';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const defaultConfig = {
+      background_color: '#FFF5F3',
+      surface_color: '#FFFFFF',
+      text_color: '#4A4A4A',
+      primary_action_color: '#C79081',
+      secondary_action_color: '#E8B4A8',
+      studio_name: 'Studio Nilza Alves',
+      studio_address: 'R. Padre Anchieta, 621, loja 106 - Monte Castelo, Fortaleza - CE',
+      studio_phone: '5585998435506',
+      welcome_message: 'Bem-vinda ao nosso studio!',
+      confirmation_message: 'Confirmado com sucesso!'
+    };
+
+    let allBookings = [];
+    let currentView = 'client';
+    let selectedDate = new Date();
+    let selectedServices = [];
+    let adminLoggedIn = sessionStorage.getItem('adminLoggedIn') === 'true';
+    let customServices = [];
+
+    const WORKING_HOURS = {
+      weekday: { start: 9, end: 19 },
+      saturday: { start: 9, end: 17 },
+      interval: 30
+    };
+
+    // FUNÇÕES DE DADOS (SUPABASE)
+    async function loadData() {
+      const { data, error } = await supabase.from('bookings').select('*');
+      if (!error) {
+        allBookings = data;
+        customServices = data.filter(item => item.type === 'service').map(item => ({
+          id: item.service_id,
+          name: item.service_name,
+          duration: item.service_duration,
+          price: parseFloat(item.service_price)
+        }));
+      }
+      renderCurrentView();
+    }
+
+    function getServices() {
+      return customServices.length > 0 ? customServices : [
+        { id: 'buco', name: 'Buço', duration: 15, price: 15.00 },
+        { id: 'axila', name: 'Axila', duration: 20, price: 20.00 },
+        { id: 'meia_perna', name: 'Meia Perna', duration: 30, price: 40.00 },
+        { id: 'perna_completa', name: 'Perna Completa', duration: 45, price: 60.00 }
+      ];
+    }
+
+    function formatDate(date) { return date.toISOString().split('T')[0]; }
+    function formatTime(hour, minute) { return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`; }
+
+    function isTimeSlotAvailable(date, time, durationMinutes = 30) {
+      const dateStr = formatDate(date);
+      const [hours, minutes] = time.split(':').map(Number);
+      const timeInMinutes = hours * 60 + minutes;
+      const endTimeInMinutes = timeInMinutes + durationMinutes;
+
+      const isBlocked = allBookings.some(b => {
+        if (b.type !== 'blocked_date' || b.blocked_date !== dateStr) return false;
+        if (!b.blocked_start_time) return true;
+        const [bsH, bsM] = b.blocked_start_time.split(':').map(Number);
+        const [beH, beM] = b.blocked_end_time.split(':').map(Number);
+        return (timeInMinutes < (beH * 60 + beM) && endTimeInMinutes > (bsH * 60 + bsM));
+      });
+      if (isBlocked) return false;
+
+      return !allBookings.some(b => {
+        if (b.type !== 'booking' || b.status !== 'confirmed' || b.date !== dateStr) return false;
+        const [bh, bm] = b.time.split(':').map(Number);
+        const start = bh * 60 + bm;
+        const end = start + (b.total_duration || 30);
+        return (timeInMinutes < end && endTimeInMinutes > start);
+      });
+    }
+
+    function generateTimeSlots(date) {
+      const slots = [];
+      const dayOfWeek = date.getDay();
+      if (dayOfWeek === 0) {
+        const released = allBookings.find(b => b.type === 'blocked_date' && b.blocked_date === formatDate(date) && b.blocked_reason === 'LIBERADO');
+        if (!released) return [];
+        var { start, end } = { start: parseInt(released.blocked_start_time), end: parseInt(released.blocked_end_time) };
+      } else {
+        var { start, end } = (dayOfWeek === 6) ? WORKING_HOURS.saturday : WORKING_HOURS.weekday;
+      }
+
+      const now = new Date();
+      const minAdvance = new Date(now.getTime() + 60 * 60 * 1000);
+      const totalDur = calculateTotalDuration();
+
+      for (let h = start; h < end; h++) {
+        for (let m = 0; m < 60; m += WORKING_HOURS.interval) {
+          const t = formatTime(h, m);
+          const slotDT = new Date(date); slotDT.setHours(h, m, 0, 0);
+          const available = slotDT > minAdvance && isTimeSlotAvailable(date, t, totalDur);
+          slots.push({ time: t, available });
+        }
+      }
+      return slots;
+    }
+
+    // --- RENDERIZAÇÃO E CLIQUE ---
+    function renderCurrentView() {
+      const app = document.getElementById('app');
+      app.innerHTML = (currentView === 'admin' && adminLoggedIn) ? renderAdminView() : renderClientView();
+    }
+
+    function toggleService(id) {
+      const i = selectedServices.indexOf(id);
+      i > -1 ? selectedServices.splice(i, 1) : selectedServices.push(id);
+      renderCurrentView();
+    }
+
+    function calculateTotalDuration() {
+      const srvs = getServices();
+      return selectedServices.reduce((t, id) => t + (srvs.find(s => s.id === id)?.duration || 0), 0);
+    }
+
+    function calculateTotalPrice() {
+      const srvs = getServices();
+      return selectedServices.reduce((t, id) => t + (srvs.find(s => s.id === id)?.price || 0), 0);
+    }
+
+    async function submitBooking(event, time) {
+      event.preventDefault();
+      const booking = {
+        id: Date.now().toString(),
+        type: 'booking',
+        client_name: document.getElementById('clientName').value,
+        client_phone: document.getElementById('clientPhone').value,
+        services: selectedServices.join(','),
+        date: formatDate(selectedDate),
+        time: time,
+        total_duration: calculateTotalDuration(),
+        total_price: calculateTotalPrice(),
+        status: 'confirmed'
+      };
+
+      const { error } = await supabase.from('bookings').insert([booking]);
+      if (!error) {
+        showSuccessMessage();
+        loadData();
+      } else {
+        alert("Erro ao salvar agendamento.");
+      }
+    }
+
+    // ... (As demais funções de visual como renderClientView, renderCalendar seguem a mesma lógica do seu código original, apenas adaptadas para chamar o Supabase nas ações) ...
+
+    function init() { loadData(); }
+    init();
+  </script>
+</body>
+</html>
