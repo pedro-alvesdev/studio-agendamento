@@ -8,45 +8,34 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Montserrat', sans-serif; }
+    body { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Montserrat', sans-serif; background: linear-gradient(135deg, #FFF5F3 0%, #FFE8E3 100%); min-height: 100vh; }
     h1, h2, h3 { font-family: 'Playfair Display', serif; }
     .calendar-day, .time-slot, .service-card { transition: all 0.3s ease; }
-    .calendar-day:hover:not(.disabled), .time-slot:hover:not(.booked):not(:disabled), .service-card:hover { 
-      transform: translateY(-2px); box-shadow: 0 4px 12px rgba(199, 144, 129, 0.3); 
-    }
-    .loading-spinner { border: 3px solid rgba(199, 144, 129, 0.2); border-top: 3px solid #C79081; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .calendar-day:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(199, 144, 129, 0.3); }
     .fade-in { animation: fadeIn 0.5s ease; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    input:focus, select:focus, textarea:focus { outline: none; border-color: #C79081; box-shadow: 0 0 0 3px rgba(199, 144, 129, 0.1); }
-    .admin-table { border-collapse: separate; border-spacing: 0; width: 100%; }
-    .admin-table th { position: sticky; top: 0; background: linear-gradient(135deg, #C79081 0%, #B8806E 100%); z-index: 10; color: white; padding: 12px; text-align: left; }
+    .admin-table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; }
+    .admin-table th { background: #C79081; color: white; padding: 12px; text-align: left; }
     .admin-table td { padding: 12px; border-bottom: 1px solid #eee; }
   </style>
 </head>
-<body class="h-full">
-  <div id="app" class="w-full h-full overflow-auto" style="background: linear-gradient(135deg, #FFF5F3 0%, #FFE8E3 100%);"></div>
+<body>
+  <div id="app" class="w-full h-full overflow-auto">
+    <div class="flex items-center justify-center h-screen">
+        <p class="animate-pulse text-[#C79081]">Carregando Studio...</p>
+    </div>
+  </div>
 
   <script>
-    // --- CONFIGURAÇÃO SUPABASE ---
     const SUPABASE_URL = 'https://bfymvjnqkzrsyexfwdcp.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_H6CY2ywkSPiYkhtFj15Xcg_PCxOpZTf';
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    const defaultConfig = {
-      background_color: '#FFF5F3',
-      surface_color: '#FFFFFF',
-      text_color: '#4A4A4A',
-      primary_action_color: '#C79081',
-      secondary_action_color: '#E8B4A8',
+    const config = {
       studio_name: 'Studio Nilza Alves',
-      studio_subtitle: 'Depilação e Estética',
       studio_address: 'R. Padre Anchieta, 621, loja 106 - Monte Castelo, Fortaleza - CE',
       studio_phone: '5585998435506',
-      welcome_message: 'Bem-vinda ao nosso studio! Escolha o melhor horário para você.',
-      confirmation_message: 'Seu agendamento foi confirmado com sucesso!',
-      font_family: 'Montserrat',
-      font_size: 16
+      primary_color: '#C79081'
     };
 
     let allBookings = [];
@@ -55,315 +44,175 @@
     let selectedServices = [];
     let selectedTime = null;
     let adminLoggedIn = sessionStorage.getItem('adminLoggedIn') === 'true';
-    let customServices = [];
-    
-    const WORKING_HOURS = {
-      weekday: { start: 9, end: 19 },
-      saturday: { start: 9, end: 17 },
-      interval: 30
-    };
 
-    // --- INTERFACE DE DADOS (SUPABASE) ---
-    const dataSdk = {
-      async refresh() {
-        const { data, error } = await _supabase.from('bookings').select('*').order('created_at', { ascending: false });
-        if (!error) {
-          allBookings = data;
-          customServices = data.filter(item => item.type === 'service').map(item => ({
-            id: item.service_id,
-            name: item.service_name,
-            duration: item.service_duration,
-            price: parseFloat(item.service_price)
-          }));
-          renderCurrentView();
-        }
-      },
-      async create(item) {
-        const { error } = await _supabase.from('bookings').insert([item]);
-        await this.refresh();
-        return { isOk: !error };
-      },
-      async update(item) {
-        const { error } = await _supabase.from('bookings').update(item).eq('__backendId', item.__backendId);
-        await this.refresh();
-        return { isOk: !error };
-      },
-      async delete(item) {
-        const { error } = await _supabase.from('bookings').delete().eq('__backendId', item.__backendId);
-        await this.refresh();
-        return { isOk: !error };
+    // --- LOGICA DE DADOS ---
+    async function loadData() {
+      try {
+        const { data, error } = await _supabase.from('bookings').select('*');
+        if (error) throw error;
+        allBookings = data || [];
+        renderCurrentView();
+      } catch (err) {
+        console.error("Erro ao carregar dados:", err);
+        // Se der erro no banco, renderiza o site assim mesmo para não ficar em branco
+        renderCurrentView(); 
       }
-    };
+    }
 
     function getServices() {
-      if (customServices.length > 0) return customServices;
+      const customs = allBookings.filter(item => item.type === 'service');
+      if (customs.length > 0) {
+        return customs.map(s => ({ id: s.service_id, name: s.service_name, duration: s.service_duration, price: parseFloat(s.service_price) }));
+      }
       return [
         { id: 'buco', name: 'Buço', duration: 15, price: 15.00 },
         { id: 'axila', name: 'Axila', duration: 20, price: 20.00 },
         { id: 'meia_perna', name: 'Meia Perna', duration: 30, price: 40.00 },
         { id: 'perna_completa', name: 'Perna Completa', duration: 45, price: 60.00 },
-        { id: 'virilha', name: 'Virilha Simples', duration: 20, price: 25.00 },
-        { id: 'virilha_completa', name: 'Virilha Completa', duration: 30, price: 40.00 },
-        { id: 'braco', name: 'Braço', duration: 25, price: 30.00 },
-        { id: 'costas', name: 'Costas', duration: 35, price: 45.00 },
-        { id: 'abdomen', name: 'Abdômen', duration: 20, price: 25.00 }
+        { id: 'virilha', name: 'Virilha Completa', duration: 30, price: 40.00 }
       ];
     }
 
-    function formatDate(date) { return date.toISOString().split('T')[0]; }
-    function formatTime(hour, minute) { return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`; }
-
-    function isTimeSlotAvailable(date, time, durationMinutes = 30) {
-      const dateStr = formatDate(date);
-      const [hours, minutes] = time.split(':').map(Number);
-      const timeInMinutes = hours * 60 + minutes;
-      const endTimeInMinutes = timeInMinutes + durationMinutes;
-      
-      const isBlocked = allBookings.some(b => {
-        if (b.type !== 'blocked_date' || b.blocked_date !== dateStr) return false;
-        if (!b.blocked_start_time || !b.blocked_end_time) return true;
-        const [bsH, bsM] = b.blocked_start_time.split(':').map(Number);
-        const [beH, beM] = b.blocked_end_time.split(':').map(Number);
-        return (timeInMinutes < (beH * 60 + beM) && endTimeInMinutes > (bsH * 60 + bsM));
-      });
-      if (isBlocked) return false;
-
-      return !allBookings.some(b => {
-        if (b.type !== 'booking' || b.status !== 'confirmed' || b.date !== dateStr) return false;
-        const [bh, bm] = b.time.split(':').map(Number);
-        const start = bh * 60 + bm;
-        const end = start + (parseInt(b.total_duration) || 30);
-        return (timeInMinutes < end && endTimeInMinutes > start);
-      });
-    }
-
+    // --- REGRAS DE HORÁRIO ---
     function generateTimeSlots(date) {
       const slots = [];
-      const dayOfWeek = date.getDay();
-      let startHour, endHour;
-      
-      if (dayOfWeek === 0) { 
-        const released = allBookings.find(b => b.type === 'blocked_date' && b.blocked_date === formatDate(date) && b.blocked_reason === 'LIBERADO');
-        if (released) {
-          startHour = parseInt(released.blocked_start_time.split(':')[0]);
-          endHour = parseInt(released.blocked_end_time.split(':')[0]);
-        } else { return []; }
-      } else {
-        const config = (dayOfWeek === 6) ? WORKING_HOURS.saturday : WORKING_HOURS.weekday;
-        startHour = config.start; endHour = config.end;
+      const dayOfWeek = date.getDay(); // 0 = Dom, 6 = Sáb
+      let start = 9, end = 19;
+
+      if (dayOfWeek === 0) {
+        const released = allBookings.find(b => b.type === 'blocked_date' && b.blocked_date === date.toISOString().split('T')[0] && b.blocked_reason === 'LIBERADO');
+        if (!released) return [];
+        start = parseInt(released.blocked_start_time); end = parseInt(released.blocked_end_time);
+      } else if (dayOfWeek === 6) {
+        end = 17; // Sábado até as 17h
       }
+
+      const totalDur = selectedServices.reduce((t, id) => t + (getServices().find(s => s.id === id)?.duration || 0), 0);
       
-      const now = new Date();
-      const minAdvance = new Date(now.getTime() + 60 * 60 * 1000);
-      const totalDur = calculateTotalDuration();
-      
-      for (let h = startHour; h < endHour; h++) {
-        for (let m = 0; m < 60; m += WORKING_HOURS.interval) {
-          const t = formatTime(h, m);
-          const slotDT = new Date(date); slotDT.setHours(h, m, 0, 0);
-          const available = slotDT > minAdvance && isTimeSlotAvailable(date, t, totalDur);
-          slots.push({ time: t, available });
+      for (let h = start; h < end; h++) {
+        for (let m = 0; m < 60; m += 30) {
+          const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          const isBusy = allBookings.some(b => b.type === 'booking' && b.date === date.toISOString().split('T')[0] && b.time === time && b.status === 'confirmed');
+          slots.push({ time, available: !isBusy });
         }
       }
       return slots;
     }
 
-    // --- UI RENDERING ---
+    // --- RENDERIZAÇÃO ---
     function renderClientView() {
-      const config = defaultConfig;
+      const services = getServices();
       return `
-        <div class="w-full max-w-6xl mx-auto p-4 sm:p-8">
-          <div class="text-center mb-12 fade-in">
-            <img src="https://i.ibb.co/sd0VY9CY/Logo-principal.png" alt="Logo" class="h-32 sm:h-48 mx-auto mb-6">
-            <p class="opacity-80 mb-4">${config.studio_address}</p>
-            <a href="https://api.whatsapp.com/send?phone=${config.studio_phone}" target="_blank" class="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-semibold bg-[#25D366] text-white">WhatsApp</a>
-          </div>
-          <div class="p-6 rounded-2xl bg-white shadow-xl mb-8 text-center">${config.welcome_message}</div>
-          <div class="mb-8">
-            <h2 class="text-2xl font-bold mb-4">Serviços</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              ${getServices().map(s => `
-                <div class="service-card p-4 rounded-xl bg-white border-2 ${selectedServices.includes(s.id) ? 'border-[#C79081]' : 'border-transparent'}" onclick="toggleService('${s.id}')">
-                  <div class="flex justify-between"><b>${s.name}</b> <span>${selectedServices.includes(s.id) ? '●' : '○'}</span></div>
-                  <div class="flex justify-between text-sm opacity-70"><span>${s.duration}min</span> <span>R$ ${s.price.toFixed(2)}</span></div>
+        <div class="max-w-4xl mx-auto p-6 fade-in">
+          <header class="text-center mb-10">
+            <img src="https://i.ibb.co/sd0VY9CY/Logo-principal.png" class="h-32 mx-auto mb-4">
+            <h1 class="text-3xl font-bold text-[#4A4A4A]">${config.studio_name}</h1>
+            <p class="text-sm opacity-60">${config.studio_address}</p>
+          </header>
+
+          <section class="mb-8">
+            <h2 class="text-xl font-bold mb-4 border-b-2 border-[#C79081] inline-block">1. Escolha os serviços</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              ${services.map(s => `
+                <div onclick="toggleService('${s.id}')" class="service-card p-4 rounded-xl bg-white shadow-sm border-2 ${selectedServices.includes(s.id) ? 'border-[#C79081]' : 'border-transparent'} cursor-pointer">
+                  <div class="flex justify-between font-bold"><span>${s.name}</span> <span>R$ ${s.price.toFixed(2)}</span></div>
+                  <p class="text-xs opacity-50">${s.duration} minutos</p>
                 </div>
               `).join('')}
             </div>
-          </div>
-          <div class="mb-8">
-            <h2 class="text-2xl font-bold mb-4">Data</h2>
-            ${renderCalendar()}
-          </div>
-          <div class="mb-8">
-            <h2 class="text-2xl font-bold mb-4">Horário</h2>
-            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
-              ${generateTimeSlots(selectedDate).map(slot => `
-                <button class="p-3 rounded-lg bg-white border-2 ${selectedTime === slot.time ? 'border-[#C79081]' : 'border-transparent'} ${!slot.available ? 'opacity-30 cursor-not-allowed' : ''}" ${slot.available ? `onclick="selectTimeSlot('${slot.time}')"` : 'disabled'}>${slot.time}</button>
+          </section>
+
+          <section class="mb-8">
+            <h2 class="text-xl font-bold mb-4 border-b-2 border-[#C79081] inline-block">2. Escolha a data</h2>
+            <input type="date" value="${selectedDate.toISOString().split('T')[0]}" onchange="selectedDate = new Date(this.value); selectedTime = null; renderCurrentView();" class="w-full p-4 rounded-xl border-2 border-white shadow-sm focus:border-[#C79081] outline-none">
+          </section>
+
+          <section class="mb-8">
+            <h2 class="text-xl font-bold mb-4 border-b-2 border-[#C79081] inline-block">3. Escolha o horário</h2>
+            <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              ${generateTimeSlots(selectedDate).map(s => `
+                <button onclick="selectedTime = '${s.time}'; renderCurrentView();" class="p-3 rounded-lg border-2 ${selectedTime === s.time ? 'bg-[#C79081] text-white border-[#C79081]' : 'bg-white border-transparent'} ${!s.available ? 'opacity-20 cursor-not-allowed' : ''}" ${!s.available ? 'disabled' : ''}>${s.time}</button>
               `).join('')}
             </div>
-          </div>
-          ${selectedTime ? `<div class="text-center"><button onclick="showBookingForm()" class="px-8 py-4 bg-[#C79081] text-white rounded-xl font-bold">Continuar</button></div>` : ''}
-          <div class="mt-12 text-center"><button onclick="showAdminLogin()" class="text-sm opacity-50">Administração</button></div>
+          </section>
+
+          ${selectedTime && selectedServices.length > 0 ? `<button onclick="showFinalForm()" class="w-full p-5 bg-[#C79081] text-white font-bold rounded-2xl shadow-lg transform transition active:scale-95">RESERVAR AGORA</button>` : ''}
+          
+          <footer class="mt-20 text-center opacity-30 text-xs">
+            <button onclick="adminLogin()">Acesso Restrito</button>
+          </footer>
         </div>
       `;
     }
 
-    function renderCalendar() {
-      const today = new Date(); today.setHours(0,0,0,0);
-      const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
-      const startDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
-      const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-      
-      let html = `<div class="bg-white p-4 rounded-xl shadow"><div class="flex justify-between font-bold mb-4"><button onclick="changeMonth(-1)">◀</button>${monthNames[selectedDate.getMonth()]} ${selectedDate.getFullYear()}<button onclick="changeMonth(1)">▶</button></div><div class="grid grid-cols-7 text-center mb-2">${['D','S','T','Q','Q','S','S'].map(d=>`<div>${d}</div>`).join('')}</div><div class="grid grid-cols-7 gap-1">`;
-      for(let i=0; i<startDay; i++) html += '<div></div>';
-      for(let d=1; d<=daysInMonth; d++) {
-        const date = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), d);
-        const isSun = date.getDay() === 0;
-        const released = isSun && allBookings.some(b => b.type === 'blocked_date' && b.blocked_date === formatDate(date) && b.blocked_reason === 'LIBERADO');
-        const disabled = date < today || (isSun && !released);
-        const active = formatDate(date) === formatDate(selectedDate);
-        html += `<button class="p-2 rounded ${active ? 'bg-[#C79081] text-white' : ''} ${disabled ? 'opacity-20' : ''}" ${disabled ? 'disabled' : `onclick="selectDate(new Date(${selectedDate.getFullYear()},${selectedDate.getMonth()},${d}))"`}>${d}</button>`;
-      }
-      return html + '</div></div>';
-    }
-
-    // --- FUNÇÕES DE INTERAÇÃO ---
     function toggleService(id) {
       const i = selectedServices.indexOf(id);
       i > -1 ? selectedServices.splice(i, 1) : selectedServices.push(id);
       renderCurrentView();
     }
-    function selectDate(d) { selectedDate = d; selectedTime = null; renderCurrentView(); }
-    function changeMonth(m) { selectedDate.setMonth(selectedDate.getMonth() + m); renderCurrentView(); }
-    function selectTimeSlot(t) { selectedTime = t; renderCurrentView(); }
-    function calculateTotalDuration() { return selectedServices.reduce((t, id) => t + (getServices().find(s => s.id === id)?.duration || 0), 0); }
-    function calculateTotalPrice() { return selectedServices.reduce((t, id) => t + (getServices().find(s => s.id === id)?.price || 0), 0); }
 
-    function showBookingForm() {
-      const app = document.getElementById('app');
-      app.innerHTML = `
-        <div class="max-w-md mx-auto p-8 fade-in">
-          <div class="bg-white p-8 rounded-2xl shadow-2xl">
-            <h2 class="text-2xl font-bold mb-6">Seus Dados</h2>
-            <form onsubmit="submitBooking(event)">
-              <div class="mb-4"><label class="block mb-1">Nome Completo</label><input id="cName" type="text" required class="w-full border-2 p-3 rounded-lg"></div>
-              <div class="mb-6"><label class="block mb-1">WhatsApp</label><input id="cPhone" type="tel" placeholder="(85) 99999-9999" required class="w-full border-2 p-3 rounded-lg"></div>
-              <div class="p-4 bg-gray-50 rounded-lg mb-6 text-sm">
-                <p>Data: ${formatDate(selectedDate)}</p>
-                <p>Hora: ${selectedTime}</p>
-                <p>Total: R$ ${calculateTotalPrice().toFixed(2)}</p>
-              </div>
-              <button type="submit" id="confirmBtn" class="w-full py-4 bg-[#C79081] text-white rounded-xl font-bold">Confirmar Agendamento</button>
-              <button type="button" onclick="renderCurrentView()" class="w-full mt-4 text-gray-400">Voltar</button>
-            </form>
-          </div>
-        </div>
-      `;
+    function showFinalForm() {
+      const name = prompt("Seu nome completo:");
+      const phone = prompt("Seu WhatsApp:");
+      if(name && phone) saveBooking(name, phone);
     }
 
-    async function submitBooking(e) {
-      e.preventDefault();
-      const btn = document.getElementById('confirmBtn');
-      btn.disabled = true; btn.innerHTML = 'Gravando...';
+    async function saveBooking(name, phone) {
       const booking = {
         type: 'booking',
-        client_name: document.getElementById('cName').value,
-        client_phone: document.getElementById('cPhone').value,
+        client_name: name,
+        client_phone: phone,
         services: selectedServices.join(','),
-        date: formatDate(selectedDate),
+        date: selectedDate.toISOString().split('T')[0],
         time: selectedTime,
-        total_duration: calculateTotalDuration(),
-        total_price: calculateTotalPrice(),
         status: 'confirmed'
       };
-      const res = await dataSdk.create(booking);
-      if(res.isOk) {
-        document.getElementById('app').innerHTML = `<div class="max-w-md mx-auto p-8 text-center h-full flex flex-col justify-center">
-          <div class="text-6xl mb-4">✅</div>
-          <h1 class="text-3xl font-bold mb-2">Agendado!</h1>
-          <p class="mb-8">Nilza Alves te espera em ${formatDate(selectedDate)} às ${selectedTime}.</p>
-          <button onclick="location.reload()" class="bg-[#C79081] text-white px-8 py-3 rounded-full">Início</button>
-        </div>`;
-      }
+      const { error } = await _supabase.from('bookings').insert([booking]);
+      if(!error) { alert("Agendamento realizado!"); location.reload(); }
     }
 
-    // --- ÁREA ADMINISTRATIVA ---
-    function showAdminLogin() {
-      const code = prompt("Código de acesso:");
-      if(code === '123456') {
-        adminLoggedIn = true; sessionStorage.setItem('adminLoggedIn','true');
-        currentView = 'admin'; renderCurrentView();
-      }
+    function adminLogin() {
+        const p = prompt("Senha:");
+        if(p === '123456') { adminLoggedIn = true; sessionStorage.setItem('adminLoggedIn', 'true'); renderCurrentView(); }
     }
 
     function renderAdminView() {
-      const upcoming = allBookings.filter(b => b.type === 'booking' && b.status === 'confirmed');
-      const blocks = allBookings.filter(b => b.type === 'blocked_date');
-      
-      return `
-        <div class="p-4 sm:p-8 max-w-6xl mx-auto">
-          <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold">Painel ADM</h1>
-            <button onclick="sessionStorage.clear(); location.reload()" class="text-red-500">Sair</button>
-          </div>
-          
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-            <div class="bg-white p-6 rounded-xl shadow">
-              <h2 class="font-bold mb-4">Bloquear/Liberar Data</h2>
-              <form onsubmit="adminAction(event, 'block')" class="space-y-3">
-                <input id="bDate" type="date" required class="w-full border p-2 rounded">
-                <input id="bReason" type="text" placeholder="Motivo (ou 'LIBERADO' para domingo)" required class="w-full border p-2 rounded">
-                <div class="flex gap-2"><input id="bStart" type="time" class="w-1/2 border p-2 rounded"> <input id="bEnd" type="time" class="w-1/2 border p-2 rounded"></div>
-                <button class="w-full bg-black text-white p-2 rounded">Salvar Regra</button>
-              </form>
+        const bookings = allBookings.filter(b => b.type === 'booking');
+        return `
+            <div class="p-8 max-w-6xl mx-auto">
+                <h1 class="text-2xl font-bold mb-6">Painel Administrativo</h1>
+                <div class="overflow-x-auto">
+                    <table class="admin-table">
+                        <thead><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Telefone</th><th>Ações</th></tr></thead>
+                        <tbody>
+                            ${bookings.map(b => `
+                                <tr>
+                                    <td>${b.date}</td><td>${b.time}</td><td>${b.client_name}</td><td>${b.client_phone}</td>
+                                    <td><button onclick="deleteBooking('${b.__backendId}')" class="text-red-500">Excluir</button></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <button onclick="sessionStorage.clear(); location.reload();" class="mt-8 text-gray-500 text-sm">Sair</button>
             </div>
-            <div class="bg-white p-6 rounded-xl shadow">
-              <h2 class="font-bold mb-4">Serviços e Preços</h2>
-              <button onclick="alert('Funcionalidade de edição de preços em desenvolvimento para Supabase.')" class="w-full border p-4 rounded border-dashed">Gerenciar Serviços</button>
-            </div>
-          </div>
-
-          <div class="bg-white rounded-xl shadow overflow-hidden">
-            <table class="admin-table">
-              <thead><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Ações</th></tr></thead>
-              <tbody>
-                ${upcoming.map(b => `<tr>
-                  <td>${b.date}</td><td>${b.time}</td><td>${b.client_name}</td>
-                  <td>
-                    <button onclick="deleteItem('${b.__backendId}')" class="text-red-500">Excluir</button>
-                  </td>
-                </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
+        `;
     }
 
-    async function adminAction(e, type) {
-      e.preventDefault();
-      const data = {
-        type: 'blocked_date',
-        blocked_date: document.getElementById('bDate').value,
-        blocked_reason: document.getElementById('bReason').value,
-        blocked_start_time: document.getElementById('bStart').value,
-        blocked_end_time: document.getElementById('bEnd').value
-      };
-      await dataSdk.create(data);
-      alert("Sucesso!");
-    }
-
-    async function deleteItem(id) {
-      if(confirm("Excluir permanentemente?")) await dataSdk.delete({ __backendId: id });
+    async function deleteBooking(id) {
+        if(confirm("Excluir?")) {
+            await _supabase.from('bookings').delete().eq('__backendId', id);
+            loadData();
+        }
     }
 
     function renderCurrentView() {
       const app = document.getElementById('app');
-      app.innerHTML = (currentView === 'admin' && adminLoggedIn) ? renderAdminView() : renderClientView();
+      app.innerHTML = adminLoggedIn ? renderAdminView() : renderClientView();
     }
 
-    // Inicialização
-    dataSdk.refresh();
+    // Início
+    loadData();
   </script>
 </body>
 </html>
