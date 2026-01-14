@@ -4,40 +4,67 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Studio Nilza Alves - Agendamento</title>
+  
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  
   <style>
-    body { font-family: 'Montserrat', sans-serif; background: linear-gradient(135deg, #FFF5F3 0%, #FFE8E3 100%); min-height: 100vh; margin: 0; }
+    :root {
+      --primary: #C79081;
+      --secondary: #E8B4A8;
+      --bg: #FFF5F3;
+    }
+    body { font-family: 'Montserrat', sans-serif; background: var(--bg); margin: 0; }
     h1, h2, h3 { font-family: 'Playfair Display', serif; }
-    .btn-primary { background-color: #C79081; color: white; transition: all 0.3s; }
-    .btn-primary:hover { background-color: #B8806E; transform: translateY(-1px); }
-    .card { background: white; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-    .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #C79081; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+    
+    .glass-card {
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 2rem;
+      box-shadow: 0 10px 30px rgba(199, 144, 129, 0.1);
+    }
+    
+    .calendar-day { transition: all 0.2s; border-radius: 0.75rem; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; font-size: 0.875rem; }
+    .calendar-day:hover:not(.disabled) { background: var(--secondary); color: white; transform: scale(1.1); }
+    .calendar-day.active { background: var(--primary); color: white; font-weight: bold; }
+    .calendar-day.disabled { opacity: 0.15; cursor: not-allowed; text-decoration: line-through; }
+    
+    .time-slot { transition: all 0.2s; border: 1px solid #eee; }
+    .time-slot:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--bg); }
+    .time-slot.active { background: var(--primary); color: white; border-color: var(--primary); }
+    
+    .service-card { transition: all 0.3s; border: 2px solid transparent; }
+    .service-card.active { border-color: var(--primary); background: var(--bg); }
+
+    .fade-in { animation: fadeIn 0.5s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    
+    .loading-spinner { border: 3px solid rgba(199, 144, 129, 0.2); border-top: 3px solid var(--primary); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body class="h-full">
-  <div id="app" class="w-full h-full overflow-auto p-4 sm:p-8">
-    <div class="flex items-center justify-center h-64">
-      <div class="loading-spinner"></div>
-    </div>
+  <div id="app" class="min-h-full w-full py-8 px-4 sm:px-8">
+      <div class="flex items-center justify-center h-64">
+          <div class="loading-spinner"></div>
+      </div>
   </div>
 
   <script>
-    // Configurações Globais
+    // --- CONFIGURAÇÃO ---
     const SUPABASE_URL = 'https://bfymvjnqkzrsyexfwdcp.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_H6CY2ywkSPiYkhtFj15Xcg_PCxOpZTf';
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     let allBookings = [];
     let selectedServices = [];
-    let selectedDate = new Date().toISOString().split('T')[0];
+    let selectedDate = new Date();
     let selectedTime = null;
     let adminMode = sessionStorage.getItem('adminLoggedIn') === 'true';
 
-    // Lista de serviços fixa (para garantir que o site carregue se o banco falhar)
-    const defaultServices = [
+    const services = [
       { id: 'buco', name: 'Buço', duration: 15, price: 15.00 },
       { id: 'axila', name: 'Axila', duration: 20, price: 20.00 },
       { id: 'meia_perna', name: 'Meia Perna', duration: 30, price: 40.00 },
@@ -45,154 +72,182 @@
       { id: 'virilha_completa', name: 'Virilha Completa', duration: 30, price: 40.00 }
     ];
 
-    // Carregar dados
-    async function init() {
+    // --- LOGICA DE DADOS ---
+    async function loadData() {
       try {
-        const { data, error } = await _supabase.from('bookings').select('*');
-        if (!error) allBookings = data;
-      } catch (e) {
-        console.error("Erro banco:", e);
-      }
+        const { data } = await _supabase.from('bookings').select('*');
+        if (data) allBookings = data;
+      } catch (e) {}
       render();
     }
 
+    // --- COMPONENTES VISUAIS ---
     function render() {
       const app = document.getElementById('app');
-      if (adminMode) {
-        renderAdmin();
-      } else {
-        renderClient();
-      }
-    }
+      if (adminMode) return renderAdmin();
 
-    function renderClient() {
-      const app = document.getElementById('app');
       app.innerHTML = `
-        <div class="max-w-2xl mx-auto space-y-8 pb-20">
-          <header class="text-center py-6">
-            <img src="https://i.ibb.co/sd0VY9CY/Logo-principal.png" class="h-32 mx-auto mb-4" alt="Logo">
-            <h1 class="text-3xl font-bold text-gray-800">Studio Nilza Alves</h1>
-            <p class="text-sm text-gray-500">Agende seu horário online</p>
+        <div class="max-w-4xl mx-auto fade-in">
+          <header class="text-center mb-12">
+            <img src="https://i.ibb.co/sd0VY9CY/Logo-principal.png" class="h-32 sm:h-48 mx-auto mb-6 drop-shadow-sm" alt="Logo">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">Studio Nilza Alves</h1>
+            <p class="text-gray-500 font-light tracking-widest uppercase text-xs">Depilação e Estética</p>
           </header>
 
-          <section class="card p-6">
-            <h2 class="text-xl font-bold mb-4">1. Selecione os Serviços</h2>
-            <div class="grid grid-cols-1 gap-3">
-              ${defaultServices.map(s => `
-                <div onclick="toggleService('${s.id}')" class="p-4 border-2 rounded-xl cursor-pointer transition ${selectedServices.includes(s.id) ? 'border-[#C79081] bg-[#FFF5F3]' : 'border-gray-100'}">
-                  <div class="flex justify-between font-bold"><span>${s.name}</span> <span>R$ ${s.price.toFixed(2)}</span></div>
-                  <p class="text-xs text-gray-400">${s.duration} min</p>
-                </div>
-              `).join('')}
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-10">
+            <div class="space-y-6">
+              <h2 class="text-2xl font-semibold text-gray-700 flex items-center gap-2">
+                <span class="w-8 h-8 rounded-full bg-[#C79081] text-white text-sm flex items-center justify-center">1</span>
+                Serviços
+              </h2>
+              <div class="grid gap-3">
+                ${services.map(s => `
+                  <div onclick="toggleSrv('${s.id}')" class="service-card glass-card p-5 cursor-pointer border-2 ${selectedServices.includes(s.id) ? 'border-[#C79081]' : 'border-transparent'}">
+                    <div class="flex justify-between items-center">
+                      <div>
+                        <h3 class="font-medium text-gray-800">${s.name}</h3>
+                        <p class="text-xs text-gray-400">${s.duration} minutos</p>
+                      </div>
+                      <span class="font-bold text-[#C79081]">R$ ${s.price.toFixed(2)}</span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
             </div>
-          </section>
 
-          <section class="card p-6">
-            <h2 class="text-xl font-bold mb-4">2. Data e Hora</h2>
-            <input type="date" value="${selectedDate}" onchange="changeDate(this.value)" class="w-full p-3 border rounded-lg mb-6 outline-none" min="${new Date().toISOString().split('T')[0]}">
-            
-            <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              ${generateSlots().map(t => `
-                <button onclick="selectTime('${t.time}')" class="p-2 text-sm rounded-lg border ${selectedTime === t.time ? 'bg-[#C79081] text-white border-[#C79081]' : 'bg-gray-50 border-transparent'} ${!t.available ? 'opacity-20 cursor-not-allowed' : ''}" ${!t.available ? 'disabled' : ''}>${t.time}</button>
-              `).join('')}
+            <div class="space-y-8">
+               <h2 class="text-2xl font-semibold text-gray-700 flex items-center gap-2">
+                <span class="w-8 h-8 rounded-full bg-[#C79081] text-white text-sm flex items-center justify-center">2</span>
+                Data e Horário
+              </h2>
+              
+              <div class="glass-card p-6">
+                ${renderCalendarUI()}
+              </div>
+
+              <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                ${generateSlots().map(t => `
+                  <button onclick="selectT('${t.time}')" class="time-slot p-3 rounded-xl text-sm ${selectedTime === t.time ? 'active' : 'bg-white text-gray-600'} ${!t.available ? 'disabled opacity-20' : ''}" ${!t.available ? 'disabled' : ''}>
+                    ${t.time}
+                  </button>
+                `).join('')}
+              </div>
+
+              ${selectedTime && selectedServices.length > 0 ? `
+                <button onclick="openConfirm()" class="w-full py-5 bg-[#C79081] text-white rounded-2xl font-bold shadow-2xl hover:bg-[#B8806E] transition-all transform active:scale-95 uppercase tracking-widest">
+                  Confirmar Agendamento
+                </button>
+              ` : ''}
             </div>
-          </section>
+          </div>
 
-          ${selectedTime && selectedServices.length > 0 ? `
-            <button onclick="confirmFlow()" class="w-full py-4 btn-primary rounded-2xl font-bold shadow-lg">FINALIZAR AGENDAMENTO</button>
-          ` : ''}
-
-          <div class="text-center pt-8">
-            <button onclick="askAdmin()" class="text-xs text-gray-300">Acesso Administrativo</button>
+          <div class="mt-20 text-center">
+             <button onclick="askAdmin()" class="text-[10px] text-gray-300 uppercase tracking-widest hover:text-[#C79081] transition">Acesso Administrativo</button>
           </div>
         </div>
       `;
     }
 
+    function renderCalendarUI() {
+      const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+      const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
+      const startDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
+      const today = new Date(); today.setHours(0,0,0,0);
+
+      let html = `
+        <div class="flex justify-between items-center mb-6">
+          <button onclick="changeMonth(-1)" class="text-[#C79081] p-2">◀</button>
+          <span class="font-bold text-gray-700">${monthNames[selectedDate.getMonth()]} ${selectedDate.getFullYear()}</span>
+          <button onclick="changeMonth(1)" class="text-[#C79081] p-2">▶</button>
+        </div>
+        <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-gray-400 mb-2">
+          <div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SAB</div>
+        </div>
+        <div class="grid grid-cols-7 gap-1">
+      `;
+
+      for (let i = 0; i < startDay; i++) html += `<div></div>`;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const curr = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), d);
+        const isSun = curr.getDay() === 0;
+        const dateStr = curr.toISOString().split('T')[0];
+        const isReleased = isSun && allBookings.some(b => b.type === 'blocked_date' && b.blocked_date === dateStr && b.blocked_reason === 'LIBERADO');
+        const isDisabled = curr < today || (isSun && !isReleased);
+        const isActive = dateStr === selectedDate.toISOString().split('T')[0];
+
+        html += `<div onclick="${isDisabled ? '' : `selectD(${d})`}" class="calendar-day ${isActive ? 'active' : ''} ${isDisabled ? 'disabled' : ''}">${d}</div>`;
+      }
+      return html + `</div>`;
+    }
+
+    // --- FUNÇÕES DE CONTROLE ---
+    function toggleSrv(id) {
+      const i = selectedServices.indexOf(id);
+      i > -1 ? selectedServices.splice(i, 1) : selectedServices.push(id);
+      render();
+    }
+    function selectD(d) { selectedDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), d); selectedTime = null; render(); }
+    function changeMonth(step) { selectedDate.setMonth(selectedDate.getMonth() + step); render(); }
+    function selectT(t) { selectedTime = t; render(); }
+
     function generateSlots() {
       const slots = [];
-      const d = new Date(selectedDate + 'T12:00:00');
-      const day = d.getDay();
-      if (day === 0) return []; // Domingo fechado
-
-      let start = 9, end = (day === 6) ? 17 : 19;
-
-      for (let h = start; h < end; h++) {
-        for (let m = 0; m < 60; m += 30) {
-          const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-          const isBusy = allBookings.some(b => b.type === 'booking' && b.date === selectedDate && b.time === time && b.status === 'confirmed');
-          slots.push({ time, available: !isBusy });
+      const day = selectedDate.getDay();
+      if (day === 0) {
+          const released = allBookings.find(b => b.type === 'blocked_date' && b.blocked_date === selectedDate.toISOString().split('T')[0] && b.blocked_reason === 'LIBERADO');
+          if(!released) return [];
+      }
+      const end = (day === 6) ? 17 : 19;
+      for (let h = 9; h < end; h++) {
+        for (let m of ['00', '30']) {
+          const t = `${String(h).padStart(2, '0')}:${m}`;
+          const busy = allBookings.some(b => b.type === 'booking' && b.date === selectedDate.toISOString().split('T')[0] && b.time === t && b.status === 'confirmed');
+          slots.push({ time: t, available: !busy });
         }
       }
       return slots;
     }
 
-    function toggleService(id) {
-      const idx = selectedServices.indexOf(id);
-      idx > -1 ? selectedServices.splice(idx, 1) : selectedServices.push(id);
-      render();
+    function openConfirm() {
+      const name = prompt("Para finalizar, digite seu nome:");
+      const phone = prompt("Seu WhatsApp (ex: 85999999999):");
+      if(name && phone) finalize(name, phone);
     }
 
-    function changeDate(val) {
-      selectedDate = val;
-      selectedTime = null;
-      render();
-    }
-
-    function selectTime(t) {
-      selectedTime = t;
-      render();
-    }
-
-    async function confirmFlow() {
-      const name = prompt("Seu nome:");
-      const phone = prompt("Seu WhatsApp:");
-      if (!name || !phone) return;
-
+    async function finalize(name, phone) {
       const booking = {
-        type: 'booking',
-        client_name: name,
-        client_phone: phone,
-        services: selectedServices.join(','),
-        date: selectedDate,
-        time: selectedTime,
-        status: 'confirmed'
+        type: 'booking', client_name: name, client_phone: phone,
+        services: selectedServices.join(','), date: selectedDate.toISOString().split('T')[0],
+        time: selectedTime, status: 'confirmed'
       };
-
       const { error } = await _supabase.from('bookings').insert([booking]);
-      if (!error) {
-        alert("Sucesso! Agendado.");
+      if(!error) {
+        alert("✨ Agendamento realizado com sucesso!");
         location.reload();
-      } else {
-        alert("Erro ao salvar no banco.");
       }
     }
 
     function askAdmin() {
-      if (prompt("Senha:") === '123456') {
-        adminMode = true;
-        sessionStorage.setItem('adminLoggedIn', 'true');
-        render();
-      }
+      if(prompt("Senha:") === '123456') { adminMode = true; sessionStorage.setItem('adminLoggedIn','true'); render(); }
     }
 
     function renderAdmin() {
-      const bookings = allBookings.filter(b => b.type === 'booking');
       const app = document.getElementById('app');
+      const bookings = allBookings.filter(b => b.type === 'booking');
       app.innerHTML = `
-        <div class="max-w-4xl mx-auto">
-          <div class="flex justify-between mb-8">
-            <h1 class="text-2xl font-bold">Agendamentos</h1>
-            <button onclick="sessionStorage.clear(); location.reload()" class="text-red-500">Sair</button>
+        <div class="max-w-4xl mx-auto p-4 fade-in">
+          <div class="flex justify-between items-center mb-8">
+            <h1 class="text-2xl font-bold">Gestão Studio</h1>
+            <button onclick="sessionStorage.clear(); location.reload()" class="text-red-400 text-sm">Sair</button>
           </div>
-          <div class="card overflow-hidden">
-            <table class="w-full text-sm">
-              <thead class="bg-gray-100"><tr><th class="p-3 text-left">Data</th><th class="p-3 text-left">Hora</th><th class="p-3 text-left">Cliente</th><th class="p-3">Ação</th></tr></thead>
+          <div class="bg-white rounded-3xl shadow-xl overflow-hidden">
+            <table class="admin-table">
+              <thead><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Ações</th></tr></thead>
               <tbody>
                 ${bookings.map(b => `
-                  <tr class="border-t">
-                    <td class="p-3">${b.date}</td><td class="p-3">${b.time}</td><td class="p-3">${b.client_name}</td>
-                    <td class="p-3 text-center"><button onclick="deleteBooking('${b.__backendId}')" class="text-red-500">Excluir</button></td>
+                  <tr>
+                    <td>${b.date}</td><td>${b.time}</td><td>${b.client_name}</td>
+                    <td><button onclick="delB('${b.__backendId}')" class="text-red-500">Excluir</button></td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -202,15 +257,11 @@
       `;
     }
 
-    async function deleteBooking(id) {
-      if (confirm("Excluir?")) {
-        await _supabase.from('bookings').delete().eq('__backendId', id);
-        init();
-      }
+    async function delB(id) {
+        if(confirm("Excluir?")) { await _supabase.from('bookings').delete().eq('__backendId', id); loadData(); }
     }
 
-    // Ligar o sistema
-    init();
+    window.onload = loadData;
   </script>
 </body>
 </html>
